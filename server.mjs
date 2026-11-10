@@ -71,20 +71,43 @@ function cardOf(item, typeId) {
   };
 }
 
-// 把 vod_play_url 里的 k2 令牌换成 /p?t=<token>，TVBox 点开即 302 到真直链
+// 线路排序：能播的排前面，网盘/网页解析类排后面（安卓点第一条必挂的就是这类）
+const LINE_BAD = /(联通云|天翼云|优酷|网盘|夸克|百度|迅雷|阿里云盘|UC)/;
+const LINE_GOOD = /(鲸宝|菲乐|咖啡|酷萌|极速|精品|豪华|红牛|新浪|zyk|4K|蓝光|高清)/;
+
+function lineRank(name) {
+  if (LINE_BAD.test(name)) return 2;
+  if (LINE_GOOD.test(name)) return 0;
+  return 1;
+}
+
+// 把 vod_play_url 里的 k2 令牌换成 /p?t=<token>，TVBox 点开即跳到真直链
 function rewritePlay(vod) {
   const self = BASE.replace(/\/$/, '');
   const from = String(vod.vod_play_from || '');
   const urls = String(vod.vod_play_url || '');
   if (!urls) return vod;
-  const blocks = urls.split('$$$').map((line) => line.split('#').map((ep) => {
-    const idx = ep.indexOf('$');
-    if (idx < 0) return ep;
-    const name = ep.slice(0, idx);
-    const code = ep.slice(idx + 1);
-    return `${name}$${self}/p?t=${encodeURIComponent(code)}`;
-  }).join('#'));
-  return { ...vod, vod_play_from: from, vod_play_url: blocks.join('$$$') };
+
+  const lines = urls.split('$$$').map((line, i) => {
+    const name = from.split('$$$')[i] || `线路${i + 1}`;
+    const eps = line.split('#').map((ep) => {
+      const idx = ep.indexOf('$');
+      if (idx < 0) return ep;
+      const epName = ep.slice(0, idx);
+      const code = ep.slice(idx + 1);
+      return code ? `${epName}$${self}/p?t=${encodeURIComponent(code)}` : ep;
+    }).filter((ep) => ep.includes('/p?t='));
+    return { name, eps, rank: lineRank(name) };
+  }).filter((x) => x.eps.length);
+
+  if (!lines.length) return vod;
+  lines.sort((a, b) => a.rank - b.rank);
+
+  return {
+    ...vod,
+    vod_play_from: lines.map((x) => (x.rank === 2 ? `${x.name}(网盘)` : x.name)).join('$$$'),
+    vod_play_url: lines.map((x) => x.eps.join('#')).join('$$$'),
+  };
 }
 
 // ---------- 最简单的内存缓存，挡掉 TVBox 的重复请求 ----------
@@ -183,22 +206,104 @@ app.get('/api.php/provide/vod', cms);
 app.get('/api.php/provide/vod/at/json', cms);
 app.get('/api.php/provide/vod/at/xml', cms);
 
-// 播放：302 到真实直链
+// ---------- m3u8 代理：安卓端直接拉经常 403，这里带上 UA/Referer 取流并改写切片地址 ----------
+const UA_PLAY = 'Mozilla/5.0 (Linux; Android 13; SM-S9080) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+const PROXY_DEFAULT_REFERER = 'https://www.google.com/';
+
+// 个别源校验 Referer，按域名给一个合适的
+function refererFor(url) {
+  try {
+    const h = new URL(url).hostname;
+    if (h.includes('shenhua7')) return 'https://shenhua7.vip/';
+    if (h.includes('tjtele')) return 'https://www.tjtele.com/';
+    if (h.includes('kqgfbs')) return 'https://www.kqgfbs.com/';
+    if (h.includes('meilinvps')) return 'https://m3v8.meilinvps.com/';
+  } catch { /* ignore */ }
+  return PROXY_DEFAULT_REFERER;
+}
+
+function proxyUrl(target, referer) {
+  const self = BASE.replace(/\/$/, '');
+  const u = b64url(target);
+  const r = referer ? `&r=${b64url(referer)}` : '';
+  return `${self}/s?u=${u}${r}`;
+}
+
+function b64url(v) {
+  return Buffer.from(String(v)).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function unb64url(v) {
+  let str = String(v || '').replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  return Buffer.from(str, 'base64').toString('utf8');
+}
+
+async function playResolve(token) {
+  const hit = MEM.get(`p:${token}`);
+  if (hit && hit.exp > Date.now()) return hit.value;
+  const got = await call('/play', { id: token });
+  const url = String(got.url || '');
+  if (!/^https?:\/\//i.test(url)) return null;
+  MEM.set(`p:${token}`, { value: url, exp: Date.now() + 600_000 });
+  return url;
+}
+
+// 播放：m3u8 走代理（客户端不再需要任何请求头），mp4 之类直接 302
 async function playTo(req, reply) {
   const token = String((req.query && (req.query.t || req.query.token)) || '');
   if (!token) return reply.code(400).send({ code: 0, msg: 'missing token' });
-  const free = MEM.get(`p:${token}`);
-  if (free && free.exp > Date.now()) {
-    return reply.redirect(free.value, 302);
+  const url = await playResolve(token);
+  if (!url) return reply.code(502).send({ code: 0, msg: '线路解析失败' });
+  if (/(download|openapi\/download)/i.test(url)) {
+    return reply.code(502).send({ code: 0, msg: '该线路是网盘下载地址，不是视频流，请换线路' });
   }
-  const got = await call('/play', { id: token });
-  const url = String(got.url || '');
-  if (!/^https?:\/\//i.test(url)) {
-    return reply.code(404).send({ code: 0, msg: got.msg || '解析失败', detail: got });
+  if (/\.m3u8(\?|$)/i.test(url) || /getM3u8/i.test(url)) {
+    return reply.redirect(proxyUrl(url, refererFor(url)), 302);
   }
-  MEM.set(`p:${token}`, { value: url, exp: Date.now() + 600_000 });
   return reply.redirect(url, 302);
 }
+
+// /s?u=<b64url>&r=<b64url referer>：取流代理，m3u8 里的切片与密钥地址一并改写
+app.get('/s', async (req, reply) => {
+  const target = unb64url(req.query && req.query.u);
+  if (!/^https?:\/\//i.test(target)) return reply.code(400).send('bad url');
+  const referer = (req.query && req.query.r) ? unb64url(req.query.r) : PROXY_DEFAULT_REFERER;
+  let res;
+  try {
+    res = await fetch(target, { headers: { 'user-agent': UA_PLAY, referer, accept: '*/*' }, redirect: 'follow' });
+  } catch (e) {
+    return reply.code(502).send(`upstream error: ${e.message}`);
+  }
+  if (res.status >= 400) return reply.code(res.status).send('upstream ' + res.status);
+  const body = Buffer.from(await res.arrayBuffer());
+  const ct = res.headers.get('content-type') || '';
+  const isM3u8 = /mpegurl|octet-stream|text\/plain/i.test(ct) || /\.m3u8(\?|$)/i.test(target) || body.slice(0, 7).toString() === '#EXTM3U';
+
+  if (!isM3u8) {
+    reply.header('content-type', ct || 'application/octet-stream');
+    reply.header('access-control-allow-origin', '*');
+    return reply.send(body);
+  }
+
+  const base = target.split('#')[0];
+  const makeAbs = (rel) => { try { return new URL(rel, base).toString(); } catch { return rel; } };
+  const rewriteLine = (line) => {
+    const t = line.trim();
+    if (!t) return line;
+    if (t.startsWith('#EXT-X-KEY') || t.startsWith('#EXT-X-MAP') || t.startsWith('#EXT-X-MEDIA')) {
+      return t.replace(/URI="([^"]+)"/g, (_m, uri) => `URI="${proxyUrl(makeAbs(uri), referer)}"`);
+    }
+    if (t.startsWith('#')) return line;
+    return proxyUrl(makeAbs(t), referer);
+  };
+  const text = body.toString('utf8').split(/\r?\n/).map(rewriteLine).join('\n');
+
+  reply.header('content-type', 'application/vnd.apple.mpegurl');
+  reply.header('access-control-allow-origin', '*');
+  reply.header('cache-control', 'no-store');
+  return reply.send(text);
+});
 
 // 播放令牌走查询串：k2 有 500+ 字符，路径参数放不下（且和插件的 POST /play 同路径易撞车）
 app.get('/p', playTo);

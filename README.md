@@ -44,7 +44,8 @@ PUBLIC_BASE=http://你的公网地址:18081 node server.mjs
 | `/api.php/provide/vod/?ac=list&t=1&pg=1` | 按分类翻页（t 见返回的 class） |
 | `/api.php/provide/vod/?ac=detail&wd=关键词` | 搜索（前 4 条带完整线路） |
 | `/api.php/provide/vod/?ac=detail&ids=<vod_id>` | 详情 |
-| `/p?t=<k2令牌>` | 播放，302 跳真实直链 |
+| `/p?t=<k2令牌>` | 播放：m3u8 走 `/s` 代理，其他直接 302 |
+| `/s?u=<b64url>&r=<b64url referer>` | 取流代理，m3u8 内切片/密钥地址自动改写 |
 
 #### 直链接口（给非 TVBox 客户端）
 
@@ -67,6 +68,12 @@ POST /home      POST /homeVod   POST /category   POST /detail   POST /play   POS
   "xifan": { "host": "...", "api": "..." },
   "cyc_username": "...", "cyc_password": "...", "cyc_token": "..." }
 ```
+
+## 线路与播放
+
+- 详情返回的线路会按可播性排序：直链类（鲸宝/菲乐/咖啡/酷萌/豪华/红牛/新浪/zyk/4K/蓝光）在前，网盘类（联通云/天翼云/优酷）排到最后并标注 `(网盘)`——这些是下载地址，不是视频流。
+- m3u8 不直接 302，而是跳到 `/s` 代理：由服务端带 UA/Referer 取流并改写切片地址，安卓端不需要任何额外请求头，避免 `403 the source ip is forbidden` 和 Referer 校验。
+- 播放失败会返回 502 和原因（如「该线路是网盘下载地址」），不会让播放器干等。
 
 ## 已知限制
 
