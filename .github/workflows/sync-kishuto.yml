@@ -13,12 +13,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Fetch source from CDN
-        run: curl -fsSL "https://aka.doubaocdn.com/s/BFfOT4xKfF" -o kishuto.js && ls -l kishuto.js && head -c 80 kishuto.js
+      - name: Fetch files from CDN
+        run: |
+          curl -fsSL "https://aka.doubaocdn.com/s/o1ywBNQPFJ" -o server.mjs
+          curl -fsSL "https://aka.doubaocdn.com/s/lweTzYEuUO" -o package.json
+          curl -fsSL "https://aka.doubaocdn.com/s/dNXBFVRAPY" -o Dockerfile
+          curl -fsSL "https://aka.doubaocdn.com/s/7LJV8RXhwN" -o README.md
+          curl -fsSL "https://aka.doubaocdn.com/s/BFfOT4xKfF" -o kishuto.js
+          ls -l
+          head -c 60 kishuto.js
+
       - name: Commit
         run: |
           git config user.name  "kishuto-bot"
           git config user.email "kishuto-bot@users.noreply.github.com"
-          git add kishuto.js
-          git commit -m "sync kishuto.js [skip ci]" || echo "no change"
+          git add server.mjs package.json Dockerfile README.md kishuto.js
+          git commit -m "sync host files [skip ci]" || echo "no change"
           git push
