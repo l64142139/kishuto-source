@@ -1,33 +1,56 @@
-# 影探聚合（Kishuto）· JS 插件源
+# 影探聚合（Kishuto）· 10 源聚合源
 
-由 `影探聚合.py` 移植，插件契约对齐 `影探4k.js`。单文件、无第三方依赖（只用 Node 内置 `crypto` / `zlib` / `fetch`）。
+移植自 `影探聚合.py`，与 `影探4k.js` 同一套 `{ meta, api }` 插件契约。单文件、无第三方依赖（只用 Node 内置 `crypto` / `zlib` / `fetch`）。
 
-## 文件
+## 两种用法
 
-| 路径 | 说明 |
+### A. 当插件用（Node 宿主，`src/sources/`）
+把 `kishuto.js` 放进宿主的 `src/sources/`，宿主提供 `../../util/req.js` 与 `../../util/home-cache.js`（缺失时自动退回全局 `fetch`）。路由：`POST /init /home /homeVod /category /detail /play /search`。
+
+### B. 当 TVBox / 猫影视源用（本项目自带宿主）
+`server.mjs` 挂载上面的插件，并补一层苹果CMS v10 兼容接口。
+
+```bash
+npm install
+PUBLIC_BASE=http://你的公网地址:18081 node server.mjs
+# 或 docker build -t kishuto . && docker run -d -p 18081:18081 -e PUBLIC_BASE=http://你的公网地址:18081 kishuto
+```
+
+`PUBLIC_BASE` 必须填**客户端能访问到的地址**，播放链接靠它拼出来。
+
+#### TVBox / 猫影视 配置（type:1 JSON 源）
+
+```json
+{
+  "sites": [
+    {
+      "key": "kishuto",
+      "name": "影探聚合",
+      "type": 1,
+      "api": "http://你的公网地址:18081/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filter": 0
+    }
+  ]
+}
+```
+
+接口：
+
+| 请求 | 作用 |
 |---|---|
-| `kishuto.js` | 主文件，4220 行，10 个源 |
+| `/api.php/provide/vod/?ac=list` | 分类表 + 首页 30 条 |
+| `/api.php/provide/vod/?ac=list&t=1&pg=1` | 按分类翻页（t 见返回的 class） |
+| `/api.php/provide/vod/?ac=detail&wd=关键词` | 搜索（前 4 条带完整线路） |
+| `/api.php/provide/vod/?ac=detail&ids=<vod_id>` | 详情 |
+| `/p?t=<k2令牌>` | 播放，302 跳真实直链 |
 
-## 在线地址
+#### 直链接口（给非 TVBox 客户端）
 
 ```
-原始（GitHub Raw）
-https://raw.githubusercontent.com/l64142139/kishuto-source/main/kishuto.js
-
-加速（jsDelivr CDN，国内更快）
-https://cdn.jsdelivr.net/gh/l64142139/kishuto-source@main/kishuto.js
+POST /home      POST /homeVod   POST /category   POST /detail   POST /play   POST /search
 ```
-
-## 契约
-
-```js
-export default {
-  meta: { key: 'kishuto', name: '🎬 影探聚合(10源)', type: 3 },
-  api: async (fastify) => { /* POST /init /home /homeVod /category /detail /play /search */ }
-};
-```
-
-宿主需提供 `../../util/req.js` 与 `../../util/home-cache.js`（与 `影探4k.js` 相同的目录结构），例如放在 `src/sources/` 下。
 
 ## 源清单（10 个）
 
@@ -51,7 +74,12 @@ export default {
 - 次元城播放需登录，未配置账号时线路名带「(需登录)」。
 - 橘汁新网关握手返回 `100001`，默认不加载，需 `{"jn": true}` 才启用。
 - 小山影视 / 四源4K专线 / FoFo影院上游已下线，未接入。
+- 详情解析偏慢（多源并发补线路，冷缓存约 7–8 秒），宿主已加 60–120 秒内存缓存。
 
-## 注意
+## 文件
 
-这是 **Node + fastify 插件**，不是 TVBox/CatVod 内置 JS 引擎（QuickJS）的规则源。猫影视/TVBox 直接填本地址无法运行，需要配套的 Node 宿主；若要 TVBox 原生可用，需另转 `var rule = {…}` 规则格式。
+| 文件 | 说明 |
+|---|---|
+| `kishuto.js` | 插件本体，10 源 |
+| `server.mjs` | TVBox 兼容宿主（fastify + 苹果CMS 路由） |
+| `Dockerfile` | 一键部署 |

@@ -1,0 +1,13 @@
+{
+  "name": "kishuto-source",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "kishuto.js",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "fastify": "^4.28.1"
+  }
+}
