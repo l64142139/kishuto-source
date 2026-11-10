@@ -309,10 +309,55 @@ app.get('/s', async (req, reply) => {
 app.get('/p', playTo);
 app.head('/p', async (req, reply) => reply.code(200).send());
 
+// ---------- 配置文件：OK影视/TVBox 的「配置地址」要的是整份 JSON，不是裸 CMS 接口 ----------
+function tvboxConfig(base) {
+  const self = String(base || BASE).replace(/\/$/, '');
+  return {
+    spider: '',
+    wallpaper: '',
+    logo: '',
+    sites: [
+      {
+        key: 'kishuto',
+        name: '影探聚合',
+        type: 1,
+        api: `${self}/api.php/provide/vod/`,
+        searchable: 1,
+        quickSearch: 1,
+        filter: 0,
+        ext: '',
+        jar: '',
+      },
+    ],
+    lives: [],
+    parsers: [],
+    flags: [],
+    rules: [],
+    ick: '',
+  };
+}
+
+async function configRoute(req, reply) {
+  // 外部访问时按请求的 Host 生成 api 地址，隧道换了也不用改配置
+  const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim();
+  const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  const base = host ? `${proto}://${host}` : BASE;
+  reply.header('content-type', 'application/json; charset=utf-8');
+  reply.header('access-control-allow-origin', '*');
+  reply.header('cache-control', 'no-store');
+  return tvboxConfig(base);
+}
+
+app.get('/config.json', configRoute);
+app.get('/tvbox.json', configRoute);
+app.get('/ok.json', configRoute);
+app.get('/ok.txt', configRoute);
+
 app.get('/', async () => ({
   ok: true,
   name: '影探聚合 · TVBox 兼容宿主',
   cms: `${BASE}/api.php/provide/vod/`,
+  config: `${BASE}/config.json`,
   config: {
     'type:1 源地址': `${BASE}/api.php/provide/vod/`,
     '接口说明': 'ac=list 取分类与列表，ac=detail&wd= 搜索，ac=detail&ids= 详情，播放走 /p?t=<token>',

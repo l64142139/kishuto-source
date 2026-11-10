@@ -1,0 +1,23 @@
+{
+  "spider": "",
+  "wallpaper": "",
+  "logo": "",
+  "sites": [
+    {
+      "key": "kishuto",
+      "name": "影探聚合",
+      "type": 1,
+      "api": "https://montgomery-reliable-nickname-outlet.trycloudflare.com/api.php/provide/vod/",
+      "searchable": 1,
+      "quickSearch": 1,
+      "filter": 0,
+      "ext": "",
+      "jar": ""
+    }
+  ],
+  "lives": [],
+  "parsers": [],
+  "flags": [],
+  "rules": [],
+  "ick": ""
+}
